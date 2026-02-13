@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using NWebDav.Server.Helpers;
 using NzbWebDAV.Config;
@@ -14,6 +14,7 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
 {
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> _recentMissingArticles = new();
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> _recentConnectionLimitErrors = new();
+    private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> _recentSeekErrors = new();
     private static readonly ConcurrentDictionary<Guid, DateTime> _recentRepairTriggers = new();
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RepairDedupeWindow = TimeSpan.FromMinutes(5);
@@ -101,7 +102,15 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
 
             var filePath = GetRequestFilePath(context);
             var seekPosition = context.Request.GetRange()?.Start?.ToString() ?? "unknown";
-            Log.Error("File {FilePath} could not seek to byte position {SeekPosition}", filePath, seekPosition);
+            var dedupeKey = $"{filePath}|{seekPosition}";
+            LogWithDedup(_recentSeekErrors, dedupeKey, suppressed =>
+            {
+                if (suppressed > 0)
+                    Log.Error("File {FilePath} could not seek to byte position {SeekPosition} (suppressed {SuppressedCount} duplicates in last 60s)",
+                        filePath, seekPosition, suppressed);
+                else
+                    Log.Error("File {FilePath} could not seek to byte position {SeekPosition}", filePath, seekPosition);
+            });
         }
         catch (Exception e) when (IsDavItemRequest(context))
         {
@@ -222,7 +231,7 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
                 // HealthCheckService queue (which orders non-NULL before NULL, then by
                 // NextHealthCheck ascending). This beats any real timestamp.
                 var urgent = DateTimeOffset.UnixEpoch;
-                if (item.NextHealthCheck == null || item.NextHealthCheck <= DateTimeOffset.UtcNow.AddSeconds(10))
+                if (item.NextHealthCheck == urgent)
                     return;
 
                 item.NextHealthCheck = urgent;
@@ -251,6 +260,11 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
         {
             if (kvp.Value.LastLogged < cutoff)
                 _recentConnectionLimitErrors.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _recentSeekErrors)
+        {
+            if (kvp.Value.LastLogged < cutoff)
+                _recentSeekErrors.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in _recentRepairTriggers)
         {
