@@ -1,9 +1,11 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.Streams;
 using NzbWebDAV.WebDav.Base;
 
@@ -27,6 +29,10 @@ public class DatabaseStoreMultipartFile(
     {
         // store the DavItem being accessed in the http context
         httpContext.Items["DavItem"] = davMultipartFile;
+
+        // set sparse file cache context for this media file
+        var sparseCtx = ct.SetContext(new SparseFileCacheContext(davMultipartFile.Id, FileSize));
+        httpContext.Response.OnCompleted(() => { sparseCtx.Dispose(); return Task.CompletedTask; });
 
         // return the stream
         var id = davMultipartFile.Id;

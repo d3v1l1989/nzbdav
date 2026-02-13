@@ -1,8 +1,10 @@
 ﻿using Microsoft.AspNetCore.Http;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.WebDav.Base;
 
 namespace NzbWebDAV.WebDav;
@@ -25,6 +27,10 @@ public class DatabaseStoreNzbFile(
     {
         // store the DavItem being accessed in the http context
         httpContext.Items["DavItem"] = davNzbFile;
+
+        // set sparse file cache context for this media file
+        var sparseCtx = cancellationToken.SetContext(new SparseFileCacheContext(davNzbFile.Id, FileSize));
+        httpContext.Response.OnCompleted(() => { sparseCtx.Dispose(); return Task.CompletedTask; });
 
         // return the stream
         var id = davNzbFile.Id;

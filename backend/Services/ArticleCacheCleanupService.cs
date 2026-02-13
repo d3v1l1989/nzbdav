@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Cache;
 using NzbWebDAV.Config;
 using Serilog;
 
@@ -8,6 +9,7 @@ namespace NzbWebDAV.Services;
 /// <summary>
 /// Background service that periodically evicts the oldest cached articles
 /// when the persistent article cache exceeds the configured maximum size.
+/// Handles both legacy per-segment files and sparse cache files.
 /// </summary>
 public class ArticleCacheCleanupService(
     ConfigManager configManager,
@@ -35,7 +37,28 @@ public class ArticleCacheCleanupService(
                 var maxSizeBytes = (long)maxSizeGb * 1024 * 1024 * 1024;
                 var targetSizeBytes = (long)(maxSizeBytes * 0.9);
 
-                EvictIfOverSize(cacheDir, maxSizeBytes, targetSizeBytes, streamingClient);
+                var cacheClient = FindPersistentCacheClient(streamingClient);
+                var sparseSize = 0L;
+
+                // First pass: evict sparse files if over budget
+                if (cacheClient != null)
+                {
+                    var sparseManager = cacheClient.SparseFileManager;
+                    sparseSize = sparseManager.TotalCachedBytes;
+                    if (sparseSize > maxSizeBytes)
+                    {
+                        var evicted = sparseManager.EvictToSize(targetSizeBytes);
+                        if (evicted.Count > 0)
+                            Log.Information("Evicted {Count} sparse cache files", evicted.Count);
+                        sparseSize = sparseManager.TotalCachedBytes;
+                    }
+                }
+
+                // Second pass: evict legacy per-segment files (budget minus sparse usage)
+                var legacyBudget = maxSizeBytes - sparseSize;
+                var legacyTarget = (long)(legacyBudget * 0.9);
+                if (legacyBudget > 0)
+                    EvictLegacyIfOverSize(cacheDir, legacyBudget, legacyTarget, cacheClient);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -48,13 +71,15 @@ public class ArticleCacheCleanupService(
         }
     }
 
-    private static void EvictIfOverSize(
+    private static void EvictLegacyIfOverSize(
         string cacheDir, long maxSizeBytes, long targetSizeBytes,
-        UsenetStreamingClient streamingClient)
+        PersistentArticleCacheNntpClient? cacheClient)
     {
-        // Enumerate all data files (non-.meta files) with their sizes and access times
+        // Enumerate all data files (non-.meta files) in non-sparse directories
+        var sparseDir = Path.Combine(cacheDir, "sparse");
         var files = Directory.EnumerateFiles(cacheDir, "*", SearchOption.AllDirectories)
             .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".tmp"))
+            .Where(f => !f.StartsWith(sparseDir, StringComparison.OrdinalIgnoreCase))
             .Select(f =>
             {
                 var info = new FileInfo(f);
@@ -66,7 +91,7 @@ public class ArticleCacheCleanupService(
         if (totalSize <= maxSizeBytes) return;
 
         Log.Information(
-            "Article cache size {SizeMb}MB exceeds max {MaxMb}MB, evicting oldest entries",
+            "Legacy article cache size {SizeMb}MB exceeds max {MaxMb}MB, evicting oldest entries",
             totalSize / (1024 * 1024), maxSizeBytes / (1024 * 1024));
 
         // Sort by last access time ascending (oldest first)
@@ -99,14 +124,8 @@ public class ArticleCacheCleanupService(
 
         if (evictedHashes.Count > 0)
         {
-            // Notify the cache client to remove evicted entries from memory
-            if (streamingClient is WrappingNntpClient wrapper)
-            {
-                var cacheClient = FindPersistentCacheClient(wrapper);
-                cacheClient?.RemoveEntries(evictedHashes);
-            }
-
-            Log.Information("Evicted {Count} entries from article cache", evictedHashes.Count);
+            cacheClient?.RemoveEntries(evictedHashes);
+            Log.Information("Evicted {Count} legacy entries from article cache", evictedHashes.Count);
         }
     }
 
