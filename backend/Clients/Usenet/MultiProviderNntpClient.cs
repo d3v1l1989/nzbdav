@@ -134,8 +134,14 @@ public class MultiProviderNntpClient(List<MultiConnectionNntpClient> providers) 
 
             if (lastException is not null)
             {
+                var failedProvider = orderedProviders[i - 1];
                 var msg = lastException.SourceException.Message;
-                Log.Debug($"Encountered error during NNTP Operation: `{msg}`. Trying another provider.");
+                Log.Information(
+                    "Provider {FailedProvider} error: {ErrorMessage}. Falling back to {NextProvider}",
+                    failedProvider.ProviderName,
+                    msg,
+                    provider.ProviderName
+                );
             }
 
             try
@@ -152,6 +158,15 @@ public class MultiProviderNntpClient(List<MultiConnectionNntpClient> providers) 
             {
                 lastException = ExceptionDispatchInfo.Capture(e);
             }
+        }
+
+        if (lastException is not null)
+        {
+            Log.Warning(
+                "All providers exhausted. Last error from {Provider}: {ErrorMessage}",
+                orderedProviders[^1].ProviderName,
+                lastException.SourceException.Message
+            );
         }
 
         lastException?.Throw();

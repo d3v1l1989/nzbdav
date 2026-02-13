@@ -19,7 +19,7 @@ public class WebsocketManager
             using var webSocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
             if (!await Authenticate(webSocket).ConfigureAwait(false))
             {
-                Log.Warning($"Closing unauthenticated websocket connection from {context.Connection.RemoteIpAddress}");
+                Log.Warning("Closing unauthenticated websocket connection from {RemoteIp}", context.Connection.RemoteIpAddress);
                 await CloseUnauthorizedConnection(webSocket).ConfigureAwait(false);
                 return;
             }
@@ -119,7 +119,7 @@ public class WebsocketManager
         }
         catch (Exception e)
         {
-            Log.Debug($"Failed to send message to websocket. {e.Message}");
+            Log.Debug("Failed to send message to websocket: {ErrorMessage}", e.Message);
         }
     }
 

@@ -54,7 +54,7 @@ public class ArrMonitoringService : BackgroundService
         }
         catch (Exception e)
         {
-            Log.Error($"Error occured while monitoring queue for `{client.Host}`: {e.Message}");
+            Log.Error("Error monitoring queue for {ArrHost}: {ErrorMessage}", client.Host, e.Message);
         }
     }
 
@@ -70,6 +70,6 @@ public class ArrMonitoringService : BackgroundService
 
         if (action is ArrConfig.QueueAction.DoNothing) return;
         await client.DeleteQueueRecord(item.Id, action).ConfigureAwait(false);
-        Log.Warning($"Resolved stuck queue item `{item.Title}` from `{client.Host}, with action `{action}`");
+        Log.Warning("Resolved stuck queue item {Title} from {ArrHost} with action {Action}", item.Title, client.Host, action);
     }
 }

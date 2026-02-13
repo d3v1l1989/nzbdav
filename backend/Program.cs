@@ -45,6 +45,7 @@ class Program
             .MinimumLevel.Override("Microsoft.AspNetCore.Hosting", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.AspNetCore.Mvc", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.AspNetCore.Routing", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.AspNetCore.Server.Kestrel", LogEventLevel.Error)
             .MinimumLevel.Override("Microsoft.AspNetCore.DataProtection", LogEventLevel.Error)
             .WriteTo.Console(theme: AnsiConsoleTheme.Code)
             .CreateLogger();

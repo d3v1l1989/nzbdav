@@ -125,7 +125,7 @@ public class QueueManager : IDisposable
             }
             catch (Exception e)
             {
-                Log.Error($"An unexpected error occured while processing the queue: {e.Message}");
+                Log.Error("Unexpected error processing the queue: {ErrorMessage}", e.Message);
             }
             finally
             {

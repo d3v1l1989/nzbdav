@@ -42,7 +42,7 @@ public class BlobCleanupService : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Error(e, $"Error processing blob cleanup queue: {e.Message}");
+                Log.Error(e, "Error processing blob cleanup queue: {ErrorMessage}", e.Message);
 
                 // Wait 10 seconds before continuing on exception
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken).ConfigureAwait(false);

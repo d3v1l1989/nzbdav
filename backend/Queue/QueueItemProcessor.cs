@@ -48,7 +48,7 @@ public class QueueItemProcessor(
         // then we need to clear any db changes and finish early.
         catch (Exception e) when (e.GetBaseException().IsCancellationException())
         {
-            Log.Information($"Processing of queue item `{queueItem.JobName}` was cancelled.");
+            Log.Information("Processing of queue item {JobName} was cancelled", queueItem.JobName);
             dbClient.Ctx.ChangeTracker.Clear();
         }
 
@@ -60,7 +60,7 @@ public class QueueItemProcessor(
         {
             try
             {
-                Log.Error($"Failed to process job, `{queueItem.JobName}` -- {e.Message}");
+                Log.Error("Failed to process job {JobName}: {ErrorMessage}", queueItem.JobName, e.Message);
                 dbClient.Ctx.ChangeTracker.Clear();
                 queueItem.PauseUntil = DateTime.Now.AddMinutes(1);
                 dbClient.Ctx.QueueItems.Attach(queueItem);
@@ -372,7 +372,7 @@ public class QueueItemProcessor(
         }
         catch (Exception e)
         {
-            Log.Debug($"Could not refresh monitored downloads for Arr instance: `{arrClient.Host}`. {e.Message}");
+            Log.Debug("Could not refresh monitored downloads for {ArrHost}: {ErrorMessage}", arrClient.Host, e.Message);
         }
     }
 }

@@ -17,17 +17,19 @@ namespace NzbWebDAV.Clients.Usenet;
 public class BaseNntpClient : NntpClient
 {
     private readonly UsenetClient _client = new();
+    private string _providerName = "unknown";
 
     public override async Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken)
     {
+        _providerName = $"{host}:{port}";
         try
         {
             await _client.ConnectAsync(host, port, useSsl, cancellationToken);
         }
         catch (Exception e) when (!e.IsCancellationException())
         {
-            const string message = "Could not connect to usenet host. Check connection settings.";
-            throw new CouldNotConnectToUsenetException(message, e);
+            throw new CouldNotConnectToUsenetException(
+                $"[{_providerName}] Could not connect to usenet host. Check connection settings.", e);
         }
     }
 
@@ -43,15 +45,16 @@ public class BaseNntpClient : NntpClient
             var response = await _client.AuthenticateAsync(user, pass, cancellationToken);
             if (!response.Success)
             {
-                var message = $"Could not login to usenet host: {response.ResponseMessage}";
-                throw new CouldNotLoginToUsenetException(message);
+                throw new CouldNotLoginToUsenetException(
+                    $"[{_providerName}] {response.ResponseMessage}");
             }
 
             return response;
         }
         catch (Exception e) when (!e.IsCancellationException())
         {
-            throw new CouldNotLoginToUsenetException("Could not login to usenet host.", e);
+            throw new CouldNotLoginToUsenetException(
+                $"[{_providerName}] Could not login to usenet host.", e);
         }
     }
 

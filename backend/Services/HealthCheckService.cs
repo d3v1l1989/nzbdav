@@ -80,7 +80,7 @@ public class HealthCheckService : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Error(e, $"Unexpected error performing background health checks: {e.Message}");
+                Log.Error(e, "Unexpected error performing background health checks: {ErrorMessage}", e.Message);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
             }
         }
