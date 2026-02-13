@@ -89,7 +89,8 @@ public class HealthCheckService : BackgroundService
     public static IOrderedQueryable<DavItem> GetHealthCheckQueueItems(DavDatabaseClient dbClient)
     {
         return GetHealthCheckQueueItemsQuery(dbClient)
-            .OrderBy(x => x.NextHealthCheck)
+            .OrderBy(x => x.NextHealthCheck == null ? 1 : 0)
+            .ThenBy(x => x.NextHealthCheck)
             .ThenByDescending(x => x.ReleaseDate)
             .ThenBy(x => x.Id);
     }
