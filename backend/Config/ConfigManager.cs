@@ -154,6 +154,14 @@ public class ConfigManager
         return new SemaphorePriorityOdds() { HighPriorityOdds = numericalValue };
     }
 
+    public int GetHealthCheckConcurrency()
+    {
+        return int.Parse(
+            StringUtil.EmptyToNull(GetConfigValue("repair.healthcheck-concurrency"))
+            ?? "50"
+        );
+    }
+
     public bool IsEnforceReadonlyWebdavEnabled()
     {
         var defaultValue = true;
