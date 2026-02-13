@@ -1,6 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using NWebDav.Server.Helpers;
+using NzbWebDAV.Config;
+using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Utils;
@@ -8,11 +10,13 @@ using Serilog;
 
 namespace NzbWebDAV.Middlewares;
 
-public class ExceptionMiddleware(RequestDelegate next)
+public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManager)
 {
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> _recentMissingArticles = new();
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> _recentConnectionLimitErrors = new();
+    private static readonly ConcurrentDictionary<Guid, DateTime> _recentRepairTriggers = new();
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan RepairDedupeWindow = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CleanupThreshold = TimeSpan.FromMinutes(5);
     private static int _callCount;
 
@@ -50,6 +54,9 @@ public class ExceptionMiddleware(RequestDelegate next)
                 else
                     Log.Error("File {FilePath} has missing articles: {ErrorMessage}", filePath, e.Message);
             });
+
+            if (context.Items["DavItem"] is DavItem davItem)
+                ScheduleRepair(davItem.Id);
         }
         catch (CouldNotLoginToUsenetException e)
         {
@@ -178,6 +185,57 @@ public class ExceptionMiddleware(RequestDelegate next)
         CleanupStaleEntries();
     }
 
+    private void ScheduleRepair(Guid davItemId)
+    {
+        if (!configManager.IsRepairJobEnabled())
+            return;
+
+        var now = DateTime.UtcNow;
+        var isDuplicate = false;
+        _recentRepairTriggers.AddOrUpdate(
+            davItemId,
+            _ => now,
+            (_, existing) =>
+            {
+                if (now - existing < RepairDedupeWindow)
+                {
+                    isDuplicate = true;
+                    return existing;
+                }
+                return now;
+            }
+        );
+
+        if (isDuplicate)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var dbContext = new DavDatabaseContext();
+                var item = await dbContext.Items.FindAsync(davItemId).ConfigureAwait(false);
+                if (item == null)
+                    return;
+
+                // Use UnixEpoch as a sentinel so dynamic repairs sort first in the
+                // HealthCheckService queue (which orders non-NULL before NULL, then by
+                // NextHealthCheck ascending). This beats any real timestamp.
+                var urgent = DateTimeOffset.UnixEpoch;
+                if (item.NextHealthCheck == null || item.NextHealthCheck <= DateTimeOffset.UtcNow.AddSeconds(10))
+                    return;
+
+                item.NextHealthCheck = urgent;
+                await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                Log.Information("Scheduled dynamic repair for {FilePath}", item.Path);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to schedule dynamic repair for DavItem {DavItemId}", davItemId);
+            }
+        });
+    }
+
     private static void CleanupStaleEntries()
     {
         if (Interlocked.Increment(ref _callCount) % 100 != 0)
@@ -193,6 +251,11 @@ public class ExceptionMiddleware(RequestDelegate next)
         {
             if (kvp.Value.LastLogged < cutoff)
                 _recentConnectionLimitErrors.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _recentRepairTriggers)
+        {
+            if (kvp.Value < cutoff)
+                _recentRepairTriggers.TryRemove(kvp.Key, out _);
         }
     }
 }
