@@ -13,7 +13,14 @@ public class UsenetStreamingClient : WrappingNntpClient
         configManager.OnConfigChanged += (_, configEventArgs) =>
         {
             // if unrelated config changed, do nothing
-            if (!configEventArgs.ChangedConfig.ContainsKey("usenet.providers")) return;
+            var relevantKeys = new[]
+            {
+                "usenet.providers",
+                "usenet.article-cache-enabled",
+                "usenet.article-cache-max-size-gb",
+                "usenet.article-cache-dir"
+            };
+            if (!relevantKeys.Any(k => configEventArgs.ChangedConfig.ContainsKey(k))) return;
 
             // update the connection-pool according to the new config
             var newUsenetClient = CreateDownloadingNntpClient(configManager, websocketManager);
@@ -21,14 +28,16 @@ public class UsenetStreamingClient : WrappingNntpClient
         };
     }
 
-    private static DownloadingNntpClient CreateDownloadingNntpClient
-    (
-        ConfigManager configManager,
-        WebsocketManager websocketManager
-    )
+    private static INntpClient CreateDownloadingNntpClient(
+        ConfigManager configManager, WebsocketManager websocketManager)
     {
         var multiProviderClient = CreateMultiProviderClient(configManager, websocketManager);
-        return new DownloadingNntpClient(multiProviderClient, configManager);
+        var downloadingClient = new DownloadingNntpClient(multiProviderClient, configManager);
+
+        if (configManager.IsArticleCacheEnabled())
+            return new PersistentArticleCacheNntpClient(downloadingClient, configManager);
+
+        return downloadingClient;
     }
 
     private static MultiProviderNntpClient CreateMultiProviderClient

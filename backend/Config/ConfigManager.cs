@@ -169,6 +169,16 @@ public class ConfigManager
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
+    public bool IsArticleCacheEnabled()
+        => GetConfigValue<bool?>("usenet.article-cache-enabled") ?? false;
+
+    public int GetArticleCacheMaxSizeGb()
+        => GetConfigValue<int?>("usenet.article-cache-max-size-gb") ?? 0;
+
+    public string GetArticleCacheDir()
+        => GetConfigValue<string?>("usenet.article-cache-dir")
+           ?? Path.Combine(DavDatabaseContext.ConfigPath, "article-cache");
+
     public HashSet<string> GetEnsureArticleExistenceCategories()
     {
         var configValue = GetConfigValue("api.ensure-article-existence-categories");
