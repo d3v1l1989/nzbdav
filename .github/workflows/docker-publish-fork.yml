@@ -1,4 +1,4 @@
-name: Build and Push Docker image to GHCR
+name: Build and Push Docker image to GHCR (Fork)
 
 on:
   push:
@@ -31,19 +31,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Set tags and NZBDAV_VERSION
         id: set_vars
         run: |
           MAJOR=0
-          MINOR=5
-          PATCH=$(( ${{ github.run_number }} - 115 ))
+          MINOR=1
+          PATCH=${{ github.run_number }}
 
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             echo "NZBDAV_VERSION=${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_OUTPUT
@@ -52,20 +45,13 @@ jobs:
           fi
 
           GHCR_REPO="ghcr.io/${{ github.repository }}"
-          DOCKERHUB_REPO="nzbdav/nzbdav"
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             {
               echo "TAGS<<EOF"
-              echo "${GHCR_REPO}:alpha"
               echo "${GHCR_REPO}:latest"
               echo "${GHCR_REPO}:${MAJOR}.x"
               echo "${GHCR_REPO}:${MAJOR}.${MINOR}.x"
               echo "${GHCR_REPO}:${MAJOR}.${MINOR}.${PATCH}"
-              echo "${DOCKERHUB_REPO}:alpha"
-              echo "${DOCKERHUB_REPO}:latest"
-              echo "${DOCKERHUB_REPO}:${MAJOR}.x"
-              echo "${DOCKERHUB_REPO}:${MAJOR}.${MINOR}.x"
-              echo "${DOCKERHUB_REPO}:${MAJOR}.${MINOR}.${PATCH}"
               echo "EOF"
             } >> $GITHUB_OUTPUT
           else
