@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
@@ -18,6 +19,7 @@ namespace NzbWebDAV.Clients.Usenet;
 /// </summary>
 public class PersistentArticleCacheNntpClient : WrappingNntpClient
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { IncludeFields = true };
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _pendingRequests = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _cachedSegments = new();
     private readonly string _cacheDir;
@@ -47,13 +49,23 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
 
             var metaFiles = Directory.EnumerateFiles(_cacheDir, "*.meta", SearchOption.AllDirectories);
             var count = 0;
+            var skipped = 0;
             foreach (var metaFile in metaFiles)
             {
                 try
                 {
                     var json = File.ReadAllText(metaFile);
-                    var metadata = JsonSerializer.Deserialize<CacheMetadata>(json);
+                    var metadata = JsonSerializer.Deserialize<CacheMetadata>(json, JsonOptions);
                     if (metadata == null) continue;
+
+                    // Skip entries with missing yenc field data (caused by
+                    // pre-fix serialization that dropped public fields).
+                    // These will be re-fetched from usenet on next access.
+                    if (metadata.YencHeaders.PartSize == 0)
+                    {
+                        skipped++;
+                        continue;
+                    }
 
                     // Extract segment hash from filename (remove .meta extension)
                     var hash = Path.GetFileNameWithoutExtension(metaFile);
@@ -66,14 +78,21 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
                         ArticleHeaders: metadata.ArticleHeaders));
                     count++;
                 }
+                catch (JsonException)
+                {
+                    // Old .meta files are missing required yenc fields
+                    // (pre-fix serialization dropped public fields).
+                    // Silently skip — they'll be re-fetched on next access.
+                    skipped++;
+                }
                 catch (Exception e)
                 {
                     Log.Warning(e, "Failed to load cache metadata from {MetaFile}", metaFile);
                 }
             }
 
-            if (count > 0)
-                Log.Information("Loaded {Count} entries from persistent article cache", count);
+            if (count > 0 || skipped > 0)
+                Log.Information("Loaded {Count} entries from persistent article cache (skipped {Skipped} entries with missing yenc metadata)", count, skipped);
         }
         catch (Exception e)
         {
@@ -297,7 +316,7 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
         {
             var metaPath = GetCachePath(hash) + ".meta";
             var tmpPath = metaPath + ".tmp";
-            var json = JsonSerializer.Serialize(metadata);
+            var json = JsonSerializer.Serialize(metadata, JsonOptions);
             File.WriteAllText(tmpPath, json);
             File.Move(tmpPath, metaPath, overwrite: true);
         }
