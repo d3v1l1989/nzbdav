@@ -1,5 +1,7 @@
 ﻿// ReSharper disable InconsistentNaming
 
+using System.Runtime.CompilerServices;
+
 namespace NzbWebDAV.Extensions;
 
 public static class IEnumerableTaskExtensions
@@ -65,7 +67,8 @@ public static class IEnumerableTaskExtensions
     public static async IAsyncEnumerable<T> WithConcurrencyAsync<T>
     (
         this IEnumerable<Task<T>> tasks,
-        int concurrency
+        int concurrency,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default
     )
     {
         if (concurrency < 1)
@@ -74,6 +77,7 @@ public static class IEnumerableTaskExtensions
         var runningTasks = new HashSet<Task<T>>();
         foreach (var task in tasks)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             runningTasks.Add(task);
             if (runningTasks.Count < concurrency) continue;
             var completedTask = await Task.WhenAny(runningTasks).ConfigureAwait(false);
@@ -83,6 +87,7 @@ public static class IEnumerableTaskExtensions
 
         while (runningTasks.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var completedTask = await Task.WhenAny(runningTasks).ConfigureAwait(false);
             runningTasks.Remove(completedTask);
             yield return await completedTask.ConfigureAwait(false);

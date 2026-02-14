@@ -32,7 +32,7 @@ public class FileProcessor(
         // In that case, simply skip the file altogether.
         catch (UsenetArticleNotFoundException) when (!FilenameUtil.IsVideoFile(fileInfo.FileName))
         {
-            Log.Warning("File {FileName} has missing articles. Skipping since it is not a video", fileInfo.FileName);
+            Log.Debug("File {FileName} has missing articles. Skipping since it is not a video", fileInfo.FileName);
             return null;
         }
     }
