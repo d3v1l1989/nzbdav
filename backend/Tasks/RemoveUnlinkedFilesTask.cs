@@ -76,14 +76,41 @@ public class RemoveUnlinkedFilesTask(
         foreach (var unlinkedFile in allUnlinkedFiles)
             RemoveItem(unlinkedFile, removedItems);
 
-        // save changes to database
-        if (!isDryRun) await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
-
         // return all removed paths
         _allRemovedPaths = allDavItems
             .Where(x => removedItems.Contains(x.Id))
             .Select(x => x.Path)
             .ToList();
+
+        // delete from database in batches (files first, then directories deepest-first
+        // to avoid ON DELETE CASCADE removing non-orphaned children)
+        if (!isDryRun)
+        {
+            const int batchSize = 1000;
+            var filesToDelete = allDavItems
+                .Where(x => removedItems.Contains(x.Id))
+                .Where(x => x.Type != DavItem.ItemType.Directory)
+                .Select(x => x.Id)
+                .ToList();
+            var dirsToDelete = allDavItems
+                .Where(x => removedItems.Contains(x.Id))
+                .Where(x => x.Type == DavItem.ItemType.Directory)
+                .OrderByDescending(x => x.Path.Length)
+                .Select(x => x.Id)
+                .ToList();
+            var idsToDelete = filesToDelete.Concat(dirsToDelete).ToList();
+
+            for (var i = 0; i < idsToDelete.Count; i += batchSize)
+            {
+                var batch = idsToDelete.Skip(i).Take(batchSize).ToList();
+                await dbClient.Ctx.Items
+                    .Where(x => batch.Contains(x.Id))
+                    .ExecuteDeleteAsync()
+                    .ConfigureAwait(false);
+
+                Report($"Deleted {Math.Min(i + batchSize, idsToDelete.Count)}/{idsToDelete.Count} orphaned items...");
+            }
+        }
 
         Report(!isDryRun
             ? $"Done. Removed {_allRemovedPaths.Count} orphaned items."
@@ -98,8 +125,7 @@ public class RemoveUnlinkedFilesTask(
         // ignore already removed items
         if (removedItems.Contains(item.Id)) return;
 
-        // remove the item
-        if (!isDryRun) dbClient.Ctx.Items.Remove(item);
+        // mark the item for removal
         removedItems.Add(item.Id);
 
         // remove the parent directory, if it is empty.
