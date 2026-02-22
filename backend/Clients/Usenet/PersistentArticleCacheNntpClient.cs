@@ -38,7 +38,7 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
     {
         _cacheDir = configManager.GetArticleCacheDir();
         Directory.CreateDirectory(_cacheDir);
-        LoadCacheMetadata();
+        Task.Run(LoadCacheMetadata);
     }
 
     private void LoadCacheMetadata()
@@ -116,6 +116,15 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
         var hash = GetHash(segmentId);
+
+        // Fast path: skip semaphore entirely for cached segments
+        if (_cachedSegments.TryGetValue(hash, out var cachedEntry))
+        {
+            TouchCacheFile(hash);
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return ReadCachedBody(segmentId, hash, cachedEntry.YencHeaders);
+        }
+
         var semaphore = _pendingRequests.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
 
         try
@@ -130,7 +139,7 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
 
         try
         {
-            // Check if already cached
+            // Re-check after acquiring semaphore (another thread may have cached it)
             if (_cachedSegments.TryGetValue(hash, out var existingEntry))
             {
                 TouchCacheFile(hash);
@@ -157,6 +166,9 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
             WriteCacheMetadata(hash, new CacheMetadata(yencHeaders, null));
             _cachedSegments.TryAdd(hash, entry);
 
+            // Semaphore no longer needed — future calls hit the fast path
+            _pendingRequests.TryRemove(hash, out _);
+
             return ReadCachedBody(segmentId, hash, yencHeaders);
         }
         finally
@@ -169,6 +181,15 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
         var hash = GetHash(segmentId);
+
+        // Fast path: skip semaphore entirely for cached segments with full headers
+        if (_cachedSegments.TryGetValue(hash, out var fastEntry) && fastEntry.HasArticleHeaders)
+        {
+            TouchCacheFile(hash);
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return ReadCachedArticle(segmentId, hash, fastEntry.YencHeaders, fastEntry.ArticleHeaders!);
+        }
+
         var semaphore = _pendingRequests.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
 
         try
@@ -183,7 +204,7 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
 
         try
         {
-            // Check if already cached with headers
+            // Re-check after acquiring semaphore
             if (_cachedSegments.TryGetValue(hash, out var cacheEntry))
             {
                 TouchCacheFile(hash);
@@ -235,6 +256,9 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
             WriteCacheMetadata(hash, new CacheMetadata(yencHeaders, response.ArticleHeaders));
             _cachedSegments.TryAdd(hash, newEntry);
 
+            // Semaphore no longer needed — future calls hit the fast path
+            _pendingRequests.TryRemove(hash, out _);
+
             return ReadCachedArticle(segmentId, hash, yencHeaders, response.ArticleHeaders);
         }
         finally
@@ -247,6 +271,14 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
         string segmentId, CancellationToken cancellationToken)
     {
         var hash = GetHash(segmentId);
+
+        // Fast path: skip semaphore for cached segments
+        if (_cachedSegments.ContainsKey(hash))
+        {
+            TouchCacheFile(hash);
+            return new UsenetExclusiveConnection(onConnectionReadyAgain: null);
+        }
+
         var semaphore = _pendingRequests.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
         await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -296,6 +328,7 @@ public class PersistentArticleCacheNntpClient : WrappingNntpClient
         foreach (var hash in hashes)
         {
             _cachedSegments.TryRemove(hash, out _);
+            _pendingRequests.TryRemove(hash, out _);
         }
     }
 

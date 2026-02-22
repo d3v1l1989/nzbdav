@@ -61,6 +61,9 @@ public interface INntpClient : IDisposable
     NzbFileStream GetFileStream(
         string[] segmentIds, long fileSize, int articleBufferSize);
 
+    NzbFileStream GetFileStream(
+        string[] segmentIds, long fileSize, int articleBufferSize, ActiveStreamInfo? streamInfo);
+
     Task CheckAllSegmentsAsync(
         IEnumerable<string> segmentIds, int concurrency, IProgress<int>? progress, CancellationToken cancellationToken);
 }

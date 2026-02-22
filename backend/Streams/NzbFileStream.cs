@@ -10,7 +10,8 @@ public class NzbFileStream(
     string[] fileSegmentIds,
     long fileSize,
     INntpClient usenetClient,
-    int articleBufferSize
+    int articleBufferSize,
+    ActiveStreamInfo? streamInfo = null
 ) : FastReadOnlyStream
 {
     private long _position;
@@ -80,7 +81,7 @@ public class NzbFileStream(
     private Stream GetMultiSegmentStream(int firstSegmentIndex, CancellationToken cancellationToken)
     {
         var segmentIds = fileSegmentIds.AsMemory()[firstSegmentIndex..];
-        return MultiSegmentStream.Create(segmentIds, usenetClient, articleBufferSize, cancellationToken);
+        return MultiSegmentStream.Create(segmentIds, usenetClient, articleBufferSize, cancellationToken, streamInfo);
     }
 
     protected override void Dispose(bool disposing)

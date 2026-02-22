@@ -13,6 +13,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private readonly INntpClient _usenetClient;
     private readonly Channel<Task<Stream>> _streamTasks;
     private readonly ContextualCancellationTokenSource _cts;
+    private readonly ActiveStreamInfo? _streamInfo;
     private Stream? _stream;
     private bool _disposed;
 
@@ -21,12 +22,13 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         Memory<string> segmentIds,
         INntpClient usenetClient,
         int articleBufferSize,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        ActiveStreamInfo? streamInfo = null
     )
     {
         return articleBufferSize == 0
             ? new UnbufferedMultiSegmentStream(segmentIds, usenetClient)
-            : new MultiSegmentStream(segmentIds, usenetClient, articleBufferSize, cancellationToken);
+            : new MultiSegmentStream(segmentIds, usenetClient, articleBufferSize, cancellationToken, streamInfo);
     }
 
     private MultiSegmentStream
@@ -34,11 +36,13 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         Memory<string> segmentIds,
         INntpClient usenetClient,
         int articleBufferSize,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        ActiveStreamInfo? streamInfo
     )
     {
         _segmentIds = segmentIds;
         _usenetClient = usenetClient;
+        _streamInfo = streamInfo;
         _streamTasks = Channel.CreateBounded<Task<Stream>>(articleBufferSize);
         _cts = ContextualCancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _ = DownloadSegments(_cts.Token);
@@ -53,6 +57,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 var segmentId = _segmentIds.Span[i];
 
                 await _streamTasks.Writer.WaitToWriteAsync(cancellationToken);
+                _streamInfo?.IncrementConnections();
                 var connection = await _usenetClient.AcquireExclusiveConnectionAsync(segmentId, cancellationToken);
                 var streamTask = DownloadSegment(segmentId, connection, cancellationToken);
                 if (_streamTasks.Writer.TryWrite(streamTask)) continue;
@@ -105,6 +110,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             // if the stream ended, continue to the next stream.
             await _stream.DisposeAsync();
             _stream = null;
+            _streamInfo?.DecrementConnections();
         }
 
         return 0;

@@ -13,6 +13,7 @@ using NzbWebDAV.Extensions;
 using NzbWebDAV.Middlewares;
 using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
+using NzbWebDAV.Streams;
 using NzbWebDAV.Utils;
 using NzbWebDAV.WebDav;
 using NzbWebDAV.WebDav.Base;
@@ -83,6 +84,7 @@ class Program
             .AddSingleton(configManager)
             .AddSingleton(websocketManager)
             .AddSingleton<UsenetStreamingClient>()
+            .AddSingleton<ActiveStreamTracker>()
             .AddSingleton<QueueManager>()
             .AddHostedService<HealthCheckService>()
             .AddHostedService<ArrMonitoringService>()

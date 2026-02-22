@@ -44,6 +44,13 @@ public class ArticleCachingNntpClient(
     public override async Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
+        // Fast path: skip semaphore for cached segments
+        if (_cachedSegments.TryGetValue(segmentId, out var cachedEntry))
+        {
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return ReadCachedBodyAsync(segmentId, cachedEntry.YencHeaders);
+        }
+
         var semaphore = _pendingRequests.GetOrAdd(segmentId, _ => new SemaphoreSlim(1, 1));
 
         try
@@ -58,7 +65,7 @@ public class ArticleCachingNntpClient(
 
         try
         {
-            // Check if already cached
+            // Re-check after acquiring semaphore
             if (_cachedSegments.TryGetValue(segmentId, out var existingEntry))
             {
                 onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
@@ -87,6 +94,9 @@ public class ArticleCachingNntpClient(
                 HasArticleHeaders: false,
                 ArticleHeaders: null));
 
+            // Semaphore no longer needed — future calls hit the fast path
+            _pendingRequests.TryRemove(segmentId, out _);
+
             // Return a new stream from the cached file
             return ReadCachedBodyAsync(segmentId, yencHeaders);
         }
@@ -99,6 +109,13 @@ public class ArticleCachingNntpClient(
     public override async Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
+        // Fast path: skip semaphore for cached segments with full headers
+        if (_cachedSegments.TryGetValue(segmentId, out var fastEntry) && fastEntry.HasArticleHeaders)
+        {
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return ReadCachedArticleAsync(segmentId, fastEntry.YencHeaders, fastEntry.ArticleHeaders!);
+        }
+
         var semaphore = _pendingRequests.GetOrAdd(segmentId, _ => new SemaphoreSlim(1, 1));
 
         try
@@ -113,7 +130,7 @@ public class ArticleCachingNntpClient(
 
         try
         {
-            // Check if already cached with headers
+            // Re-check after acquiring semaphore
             if (_cachedSegments.TryGetValue(segmentId, out var cacheEntry))
             {
                 if (cacheEntry.HasArticleHeaders)
@@ -169,6 +186,9 @@ public class ArticleCachingNntpClient(
                 HasArticleHeaders: true,
                 ArticleHeaders: response.ArticleHeaders));
 
+            // Semaphore no longer needed — future calls hit the fast path
+            _pendingRequests.TryRemove(segmentId, out _);
+
             // Return a new stream from the cached file
             return ReadCachedArticleAsync(segmentId, yencHeaders, response.ArticleHeaders);
         }
@@ -184,6 +204,10 @@ public class ArticleCachingNntpClient(
         CancellationToken cancellationToken
     )
     {
+        // Fast path: skip semaphore for cached segments
+        if (_cachedSegments.ContainsKey(segmentId))
+            return new UsenetExclusiveConnection(onConnectionReadyAgain: null);
+
         var semaphore = _pendingRequests.GetOrAdd(segmentId, _ => new SemaphoreSlim(1, 1));
         await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

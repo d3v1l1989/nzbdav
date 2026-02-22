@@ -52,49 +52,78 @@ public class ArticleCacheCleanupService(
         string cacheDir, long maxSizeBytes, long targetSizeBytes,
         UsenetStreamingClient streamingClient)
     {
-        // Enumerate all data files (non-.meta files) with their sizes and access times
-        var files = Directory.EnumerateFiles(cacheDir, "*", SearchOption.AllDirectories)
-            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".tmp"))
-            .Select(f =>
-            {
-                var info = new FileInfo(f);
-                return new { Path = f, info.Length, info.LastAccessTimeUtc, Hash = Path.GetFileName(f) };
-            })
-            .ToList();
+        // Phase 1: Calculate total size with streaming enumeration (no materialization)
+        long totalSize = 0;
+        foreach (var f in Directory.EnumerateFiles(cacheDir, "*", SearchOption.AllDirectories))
+        {
+            if (f.EndsWith(".meta") || f.EndsWith(".tmp")) continue;
+            try { totalSize += new FileInfo(f).Length; }
+            catch { /* file may have been deleted concurrently */ }
+        }
 
-        var totalSize = files.Sum(f => f.Length);
         if (totalSize <= maxSizeBytes) return;
 
         Log.Information(
             "Article cache size {SizeMb}MB exceeds max {MaxMb}MB, evicting oldest entries",
             totalSize / (1024 * 1024), maxSizeBytes / (1024 * 1024));
 
-        // Sort by last access time ascending (oldest first)
-        var sorted = files.OrderBy(f => f.LastAccessTimeUtc).ToList();
+        // Phase 2: Evict shard-by-shard to avoid loading millions of FileInfo at once
         var evictedHashes = new List<string>();
+        string[] shardDirs;
+        try
+        {
+            shardDirs = Directory.GetDirectories(cacheDir);
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "Failed to enumerate cache shard directories");
+            return;
+        }
 
-        foreach (var file in sorted)
+        foreach (var shardDir in shardDirs)
         {
             if (totalSize <= targetSizeBytes) break;
 
+            List<(string Path, long Length, DateTime LastAccessTimeUtc, string Hash)> shardFiles;
             try
             {
-                var metaPath = file.Path + ".meta";
-                totalSize -= file.Length;
-
-                File.Delete(file.Path);
-                if (File.Exists(metaPath)) File.Delete(metaPath);
-
-                evictedHashes.Add(file.Hash);
-
-                // Clean up empty parent directory
-                var parentDir = Path.GetDirectoryName(file.Path);
-                TryDeleteEmptyDirectory(parentDir);
+                shardFiles = Directory.EnumerateFiles(shardDir)
+                    .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".tmp"))
+                    .Select(f =>
+                    {
+                        var info = new FileInfo(f);
+                        return (f, info.Length, info.LastAccessTimeUtc, Hash: System.IO.Path.GetFileName(f));
+                    })
+                    .OrderBy(f => f.LastAccessTimeUtc)
+                    .ToList();
             }
             catch (Exception e)
             {
-                Log.Warning(e, "Failed to evict cache file {Path}", file.Path);
+                Log.Warning(e, "Failed to enumerate shard directory {ShardDir}", shardDir);
+                continue;
             }
+
+            foreach (var file in shardFiles)
+            {
+                if (totalSize <= targetSizeBytes) break;
+
+                try
+                {
+                    var metaPath = file.Path + ".meta";
+                    totalSize -= file.Length;
+
+                    File.Delete(file.Path);
+                    if (File.Exists(metaPath)) File.Delete(metaPath);
+
+                    evictedHashes.Add(file.Hash);
+                }
+                catch (Exception e)
+                {
+                    Log.Warning(e, "Failed to evict cache file {Path}", file.Path);
+                }
+            }
+
+            TryDeleteEmptyDirectory(shardDir);
         }
 
         if (evictedHashes.Count > 0)
