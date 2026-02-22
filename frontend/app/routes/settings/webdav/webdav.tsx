@@ -157,6 +157,20 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                 <Form.Check
                     className={styles.input}
                     type="checkbox"
+                    id="active-stream-tracker-checkbox"
+                    aria-describedby="active-stream-tracker-help"
+                    label={`Enable Active Stream Tracker`}
+                    checked={config["webdav.active-stream-tracker"] === "true"}
+                    onChange={e => setNewConfig({ ...config, "webdav.active-stream-tracker": "" + e.target.checked })} />
+                <Form.Text id="active-stream-tracker-help" muted>
+                    Track and display active streams in the sidebar, showing file names, speeds, and connection counts in real time.
+                </Form.Text>
+            </Form.Group>
+            <hr />
+            <Form.Group>
+                <Form.Check
+                    className={styles.input}
+                    type="checkbox"
                     id="show-hidden-files-checkbox"
                     aria-describedby="show-hidden-files-help"
                     label={`Show hidden files on Dav Explorer`}
@@ -193,6 +207,7 @@ export function isWebdavSettingsUpdated(config: Record<string, string>, newConfi
         || config["usenet.article-cache-enabled"] !== newConfig["usenet.article-cache-enabled"]
         || config["usenet.article-cache-max-size-gb"] !== newConfig["usenet.article-cache-max-size-gb"]
         || config["usenet.article-cache-dir"] !== newConfig["usenet.article-cache-dir"]
+        || config["webdav.active-stream-tracker"] !== newConfig["webdav.active-stream-tracker"]
         || config["webdav.show-hidden-files"] !== newConfig["webdav.show-hidden-files"]
         || config["webdav.enforce-readonly"] !== newConfig["webdav.enforce-readonly"]
         || config["webdav.preview-par2-files"] !== newConfig["webdav.preview-par2-files"]

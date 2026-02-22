@@ -64,6 +64,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 
                 // if we never get a chance to write the stream to the writer
                 // then make sure the stream gets disposed.
+                _streamInfo?.DecrementConnections();
                 _ = Task.Run(async () => await (await streamTask).DisposeAsync(), CancellationToken.None);
                 break;
             }
@@ -128,12 +129,19 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
-        _stream?.Dispose();
+        if (_stream != null)
+        {
+            _stream.Dispose();
+            _streamInfo?.DecrementConnections();
+        }
         _streamTasks.Writer.TryComplete();
 
         // ensure that streams that were never read from the channel get disposed
         while (_streamTasks.Reader.TryRead(out var streamTask))
+        {
+            _streamInfo?.DecrementConnections();
             _ = Task.Run(async () => await (await streamTask).DisposeAsync(), CancellationToken.None);
+        }
 
         base.Dispose();
     }

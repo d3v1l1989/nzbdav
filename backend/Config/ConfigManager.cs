@@ -169,6 +169,12 @@ public class ConfigManager
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
+    public bool IsActiveStreamTrackerEnabled()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue("webdav.active-stream-tracker"));
+        return configValue == null || !bool.TryParse(configValue, out var result) || result;
+    }
+
     public bool IsArticleCacheEnabled()
         => GetConfigValue<bool?>("usenet.article-cache-enabled") ?? false;
 

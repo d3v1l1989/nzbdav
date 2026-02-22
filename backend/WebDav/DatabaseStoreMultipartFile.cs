@@ -32,11 +32,14 @@ public class DatabaseStoreMultipartFile(
         // register active stream and deregister when the response completes
         var streamInfo = activeStreamTracker.Register(davMultipartFile.Name);
         httpContext.Items["ActiveStreamInfo"] = streamInfo;
-        httpContext.Response.OnCompleted(() =>
+        if (streamInfo != null)
         {
-            activeStreamTracker.Deregister(streamInfo.Id);
-            return Task.CompletedTask;
-        });
+            httpContext.Response.OnCompleted(() =>
+            {
+                activeStreamTracker.Deregister(streamInfo.Id);
+                return Task.CompletedTask;
+            });
+        }
 
         // return the stream
         var id = davMultipartFile.Id;

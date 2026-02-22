@@ -36,6 +36,7 @@ const defaultConfig = {
     "webdav.pass": "",
     "webdav.show-hidden-files": "false",
     "webdav.enforce-readonly": "true",
+    "webdav.active-stream-tracker": "true",
     "webdav.preview-par2-files": "false",
     "rclone.mount-dir": "",
     "media.library-dir": "",

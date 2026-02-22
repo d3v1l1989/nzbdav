@@ -8,9 +8,10 @@ import { LiveActiveStreams } from "../live-active-streams/live-active-streams";
 export type LeftNavigationProps = {
     version?: string,
     isFrontendAuthDisabled?: boolean,
+    isActiveStreamTrackerEnabled?: boolean,
 }
 
-export function LeftNavigation({ version, isFrontendAuthDisabled }: LeftNavigationProps) {
+export function LeftNavigation({ version, isFrontendAuthDisabled, isActiveStreamTrackerEnabled }: LeftNavigationProps) {
     return (
         <div className={styles.container}>
             <Item target="/queue">
@@ -30,7 +31,7 @@ export function LeftNavigation({ version, isFrontendAuthDisabled }: LeftNavigati
                 <div className={styles.title}>Settings</div>
             </Item>
             <LiveUsenetConnections />
-            <LiveActiveStreams />
+            {isActiveStreamTrackerEnabled !== false && <LiveActiveStreams />}
 
             <div className={styles.footer}>
                 <div className={styles["footer-item"]}>

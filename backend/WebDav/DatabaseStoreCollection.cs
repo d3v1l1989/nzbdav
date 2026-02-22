@@ -143,7 +143,7 @@ public class DatabaseStoreCollection(
                     davItem, httpContext, dbClient, usenetClient, configManager, activeStreamTracker),
             DavItem.ItemType.RarFile =>
                 new DatabaseStoreRarFile(
-                    davItem, httpContext, dbClient, usenetClient, configManager),
+                    davItem, httpContext, dbClient, usenetClient, configManager, activeStreamTracker),
             DavItem.ItemType.MultipartFile =>
                 new DatabaseStoreMultipartFile(
                     davItem, httpContext, dbClient, usenetClient, configManager, activeStreamTracker),

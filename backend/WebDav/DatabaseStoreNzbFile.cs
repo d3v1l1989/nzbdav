@@ -31,11 +31,14 @@ public class DatabaseStoreNzbFile(
         // register active stream and deregister when the response completes
         var streamInfo = activeStreamTracker.Register(davNzbFile.Name);
         httpContext.Items["ActiveStreamInfo"] = streamInfo;
-        httpContext.Response.OnCompleted(() =>
+        if (streamInfo != null)
         {
-            activeStreamTracker.Deregister(streamInfo.Id);
-            return Task.CompletedTask;
-        });
+            httpContext.Response.OnCompleted(() =>
+            {
+                activeStreamTracker.Deregister(streamInfo.Id);
+                return Task.CompletedTask;
+            });
+        }
 
         // return the stream
         var id = davNzbFile.Id;

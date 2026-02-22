@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using NzbWebDAV.Config;
 using NzbWebDAV.Websocket;
 using Serilog;
 
@@ -8,17 +9,20 @@ namespace NzbWebDAV.Streams;
 public class ActiveStreamTracker
 {
     private readonly ConcurrentDictionary<string, ActiveStreamInfo> _activeStreams = new();
+    private readonly ConfigManager _configManager;
     private readonly WebsocketManager _websocketManager;
     private readonly Timer _broadcastTimer;
 
-    public ActiveStreamTracker(WebsocketManager websocketManager)
+    public ActiveStreamTracker(ConfigManager configManager, WebsocketManager websocketManager)
     {
+        _configManager = configManager;
         _websocketManager = websocketManager;
         _broadcastTimer = new Timer(_ => BroadcastActiveStreams(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
-    public ActiveStreamInfo Register(string fileName)
+    public ActiveStreamInfo? Register(string fileName)
     {
+        if (!_configManager.IsActiveStreamTrackerEnabled()) return null;
         var info = new ActiveStreamInfo(fileName);
         _activeStreams[info.Id] = info;
         BroadcastActiveStreams();
@@ -33,6 +37,7 @@ public class ActiveStreamTracker
 
     private void BroadcastActiveStreams()
     {
+        if (!_configManager.IsActiveStreamTrackerEnabled() && _activeStreams.IsEmpty) return;
         try
         {
             var streams = _activeStreams.Values
@@ -61,6 +66,7 @@ public class ActiveStreamInfo
     private long _lastBytes;
     private double _lastElapsedMs;
     private double _speedBytesPerSecond;
+    private readonly object _syncLock = new();
 
     public ActiveStreamInfo(string fileName)
     {
@@ -84,19 +90,27 @@ public class ActiveStreamInfo
 
     public string ToMessage()
     {
-        var elapsed = _stopwatch.Elapsed.TotalMilliseconds;
-        var intervalMs = elapsed - _lastElapsedMs;
         var bytes = BytesTransferred;
-        var intervalBytes = bytes - _lastBytes;
+        long speed;
 
-        if (intervalMs > 500)
+        lock (_syncLock)
         {
-            _speedBytesPerSecond = intervalBytes / (intervalMs / 1000.0);
-            _lastBytes = bytes;
-            _lastElapsedMs = elapsed;
+            var elapsed = _stopwatch.Elapsed.TotalMilliseconds;
+            var intervalMs = elapsed - _lastElapsedMs;
+            var intervalBytes = bytes - _lastBytes;
+
+            if (intervalMs > 500)
+            {
+                _speedBytesPerSecond = intervalBytes / (intervalMs / 1000.0);
+                _lastBytes = bytes;
+                _lastElapsedMs = elapsed;
+            }
+
+            speed = (long)_speedBytesPerSecond;
         }
 
         // format: id|fileName|bytesTransferred|speedBytesPerSec|activeConnections
-        return $"{Id}|{FileName}|{bytes}|{(long)_speedBytesPerSecond}|{ActiveConnections}";
+        var safeName = FileName.Replace('|', '_');
+        return $"{Id}|{safeName}|{bytes}|{speed}|{ActiveConnections}";
     }
 }
