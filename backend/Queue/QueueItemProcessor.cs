@@ -139,7 +139,7 @@ public class QueueItemProcessor(
             .ToMultiProgress(fileProcessors.Count);
         var fileProcessingResultsAll = await fileProcessors
             .Select(x => x!.ProcessAsync(part2Progress.SubProgress))
-            .WithConcurrencyAsync(configManager.GetMaxDownloadConnections() + 5)
+            .WithConcurrencyAsync(Math.Min(configManager.GetMaxDownloadConnections() + 5, 10))
             .GetAllAsync(ct).ConfigureAwait(false);
         var fileProcessingResults = fileProcessingResultsAll
             .Where(x => x is not null)
@@ -151,16 +151,15 @@ public class QueueItemProcessor(
         var healthCheckCategories = configManager.GetEnsureArticleExistenceCategories();
         if (healthCheckCategories.Contains(queueItem.Category.ToLower()))
         {
-            var articlesToCheck = fileInfos
+            var articlesToCheck = HealthCheckService.SampleSegments(fileInfos
                 .Where(x => x.IsRar || FilenameUtil.IsImportantFileType(x.FileName))
                 .SelectMany(x => x.NzbFile.GetSegmentIds())
-                .ToList();
+                .ToList());
             var part3Progress = progress
                 .Offset(100)
                 .ToPercentage(articlesToCheck.Count);
-            var healthCheckConcurrency = configManager
-                .GetUsenetProviderConfig()
-                .TotalPooledConnections;
+            var healthCheckConcurrency = Math.Min(
+                configManager.GetUsenetProviderConfig().TotalPooledConnections, 10);
             await usenetClient
                 .CheckAllSegmentsAsync(articlesToCheck, healthCheckConcurrency, part3Progress, ct)
                 .ConfigureAwait(false);

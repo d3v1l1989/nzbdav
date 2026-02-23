@@ -126,7 +126,7 @@ public class SevenZipProcessor : BaseProcessor
         var progressPercentage = progress.ToPercentage(missingFileSizes.Count);
         var populatedFileSizes = await missingFileSizes
             .Select(PopulateMissingFileSize)
-            .WithConcurrencyAsync(_configManager.GetMaxDownloadConnections())
+            .WithConcurrencyAsync(Math.Min(_configManager.GetMaxDownloadConnections(), 10))
             .GetAllAsync(_ct, progressPercentage)
             .ConfigureAwait(false);
         progress.Report(100);

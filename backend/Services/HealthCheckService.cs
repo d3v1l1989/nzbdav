@@ -127,9 +127,12 @@ public class HealthCheckService : BackgroundService
                 debounce(() => _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, message));
             };
 
+            // sample segments for large files to avoid overwhelming NNTP providers
+            var sampled = SampleSegments(segments);
+
             // perform health check
-            var progress = progressHook.ToPercentage(segments.Count);
-            await _usenetClient.CheckAllSegmentsAsync(segments, concurrency, progress, ct).ConfigureAwait(false);
+            var progress = progressHook.ToPercentage(sampled.Count);
+            await _usenetClient.CheckAllSegmentsAsync(sampled, concurrency, progress, ct).ConfigureAwait(false);
             _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|100");
             _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|done");
 
@@ -159,6 +162,42 @@ public class HealthCheckService : BackgroundService
             // when usenet article is missing, perform repairs
             await Repair(davItem, dbClient, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// For files with more than 1000 segments, returns a stratified sample:
+    /// - First 50 segments (head)
+    /// - Last 50 segments (tail)
+    /// - ~1000 evenly-spaced segments from the middle
+    /// This reduces checks from tens of thousands to ~1100 while maintaining
+    /// even coverage across the entire file.
+    /// </summary>
+    public static List<string> SampleSegments(List<string> segments)
+    {
+        const int threshold = 1000;
+        if (segments.Count <= threshold) return segments;
+
+        const int headCount = 50;
+        const int tailCount = 50;
+        const int strideTarget = 1000;
+
+        var result = new HashSet<int>();
+
+        // head
+        for (var i = 0; i < Math.Min(headCount, segments.Count); i++)
+            result.Add(i);
+
+        // tail
+        for (var i = Math.Max(0, segments.Count - tailCount); i < segments.Count; i++)
+            result.Add(i);
+
+        // evenly-spaced stride through the middle
+        var stride = Math.Max(1, segments.Count / strideTarget);
+        for (var i = 0; i < segments.Count; i += stride)
+            result.Add(i);
+
+        // return in original order
+        return result.OrderBy(i => i).Select(i => segments[i]).ToList();
     }
 
     private async Task UpdateReleaseDate(DavItem davItem, List<string> segments, CancellationToken ct)
