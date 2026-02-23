@@ -6,6 +6,7 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Queue.DeobfuscationSteps._1.FetchFirstSegment;
@@ -130,6 +131,30 @@ public class QueueItemProcessor(
             segments, usenetClient, ct).ConfigureAwait(false);
         var fileInfos = GetFileInfosStep.GetFileInfos(
             segments, par2FileDescriptors);
+
+        // step 1b -- fail fast if any important file has missing first segment.
+        // If the first segment is gone across all providers, the rest are too.
+        // We exclude known-unimportant extensions rather than matching important ones,
+        // because obfuscated filenames (common on DMCA'd content) won't match
+        // any known extension and should be treated as potentially important.
+        HashSet<string> unimportantExtensions = [".par2", ".nfo", ".txt", ".sfv", ".nzb", ".srr"];
+        var missingNzbFiles = segments
+            .Where(x => x.MissingFirstSegment)
+            .Select(x => x.NzbFile)
+            .ToHashSet();
+        var importantFilesMissing = fileInfos
+            .Where(x => missingNzbFiles.Contains(x.NzbFile))
+            .Where(x => !unimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .ToList();
+        if (importantFilesMissing.Count > 0)
+        {
+            var fileNames = string.Join(", ", importantFilesMissing
+                .Select(x => string.IsNullOrEmpty(x.FileName) ? x.NzbFile.Subject : x.FileName)
+                .Take(3));
+            throw new NonRetryableDownloadException(
+                $"Missing articles: {importantFilesMissing.Count} important file(s) have missing segments " +
+                $"across all providers (e.g. {fileNames}). NZB is likely DMCA'd or expired.");
+        }
 
         // step 2 -- perform file processing
         var fileProcessors = GetFileProcessors(fileInfos, archivePassword).ToList();
