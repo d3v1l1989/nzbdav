@@ -22,7 +22,7 @@ public static class FetchFirstSegmentsStep
     {
         // Cap concurrency to avoid saturating the NNTP connection pool
         // and starving other operations (health checks, streaming).
-        var concurrency = Math.Min(configManager.GetMaxDownloadConnections() + 5, 10);
+        var concurrency = Math.Min(configManager.GetMaxDownloadConnections() + 5, 50);
         return await nzbFiles
             .Where(x => x.Segments.Count > 0)
             .Select(x => FetchFirstSegment(x, usenetClient, cancellationToken))
