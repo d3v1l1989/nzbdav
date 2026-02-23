@@ -165,21 +165,21 @@ public class HealthCheckService : BackgroundService
     }
 
     /// <summary>
-    /// For files with more than 1000 segments, returns a stratified sample:
-    /// - First 50 segments (head)
-    /// - Last 50 segments (tail)
-    /// - ~1000 evenly-spaced segments from the middle
-    /// This reduces checks from tens of thousands to ~1100 while maintaining
+    /// For files with more than 4000 segments, returns a stratified sample:
+    /// - First 100 segments (head)
+    /// - Last 100 segments (tail)
+    /// - ~4000 evenly-spaced segments from the middle
+    /// This reduces checks from tens of thousands to ~4200 while maintaining
     /// even coverage across the entire file.
     /// </summary>
     public static List<string> SampleSegments(List<string> segments)
     {
-        const int threshold = 1000;
+        const int threshold = 4000;
         if (segments.Count <= threshold) return segments;
 
-        const int headCount = 50;
-        const int tailCount = 50;
-        const int strideTarget = 1000;
+        const int headCount = 100;
+        const int tailCount = 100;
+        const int strideTarget = 4000;
 
         var result = new HashSet<int>();
 
